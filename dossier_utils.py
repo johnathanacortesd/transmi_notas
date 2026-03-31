@@ -5,6 +5,7 @@ import pandas as pd
 from difflib import SequenceMatcher
 from nltk.corpus import stopwords
 
+
 # --- Funciones de limpieza de texto ---
 
 def convert_html_entities(text: str) -> str:
@@ -288,3 +289,55 @@ def detect_duplicates_optimized(df: pd.DataFrame) -> pd.DataFrame:
     df['is_duplicate'] = df['original_index'].isin(duplicate_indices)
 
     return df.sort_values('original_index').set_index('original_index').drop(columns=['title_quality'])
+
+
+# --- Función de Expansión por Menciones ---
+
+def expand_by_mentions(df: pd.DataFrame, mention_col: str = 'Menciones - Empresa') -> pd.DataFrame:
+    """
+    Expande filas según los valores separados por ';' en la columna de menciones.
+
+    Cada fila con N menciones separadas por ';' genera N filas idénticas,
+    cada una con una sola mención. Las filas sin ';' quedan intactas.
+
+    Parámetros
+    ----------
+    df : pd.DataFrame
+        DataFrame ya procesado (con tono, tema, etc.).
+    mention_col : str
+        Nombre de la columna que contiene las menciones separadas por ';'.
+
+    Retorna
+    -------
+    pd.DataFrame
+        DataFrame expandido con filas duplicadas/triplicadas según menciones.
+    """
+    if mention_col not in df.columns:
+        return df.copy()
+
+    # Separar menciones por ';', limpiar espacios y eliminar vacíos
+    df = df.copy()
+    df[mention_col] = df[mention_col].astype(str).fillna('')
+
+    expanded_rows = []
+    for idx, row in df.iterrows():
+        mentions_raw = row[mention_col]
+        mentions = [m.strip() for m in mentions_raw.split(';') if m.strip()]
+
+        if not mentions:
+            # Si está vacía, mantener la fila tal cual
+            expanded_rows.append(row)
+        elif len(mentions) == 1:
+            # Una sola mención, mantener tal cual
+            row_copy = row.copy()
+            row_copy[mention_col] = mentions[0]
+            expanded_rows.append(row_copy)
+        else:
+            # Múltiples menciones → duplicar/triplicar fila
+            for mention in mentions:
+                row_copy = row.copy()
+                row_copy[mention_col] = mention
+                expanded_rows.append(row_copy)
+
+    result = pd.DataFrame(expanded_rows).reset_index(drop=True)
+    return result
