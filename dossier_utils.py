@@ -9,7 +9,6 @@ from nltk.corpus import stopwords
 # --- Funciones de limpieza de texto ---
 
 def convert_html_entities(text: str) -> str:
-    """Decodifica entidades HTML y reemplaza caracteres problemáticos."""
     if not isinstance(text, str):
         return text
     text = html.unescape(text)
@@ -24,7 +23,6 @@ def convert_html_entities(text: str) -> str:
 
 
 def clean_title(title: str) -> str:
-    """Limpia SOLO las entidades HTML del título."""
     if not isinstance(title, str):
         return ""
     return convert_html_entities(title)
@@ -242,10 +240,6 @@ def detect_duplicates_optimized(df: pd.DataFrame) -> pd.DataFrame:
 # --- Función de Expansión por Menciones ---
 
 def expand_by_mentions(df: pd.DataFrame, mention_col: str = 'Menciones - Empresa') -> pd.DataFrame:
-    """
-    Expande filas según los valores separados por ';' en la columna de menciones.
-    Cada fila con N menciones genera N filas idénticas, cada una con una sola mención.
-    """
     if mention_col not in df.columns:
         return df.copy()
 
