@@ -28,10 +28,73 @@ SINONIMOS_TM = {
     'troncal': 'transmilenio'
 }
 
+# SE AMPLIÓ EL DICCIONARIO PARA INCLUIR VARIACIONES DE GÉNERO, PLURALES Y NUEVOS VERBOS/ADJETIVOS
 PALABRAS_POSITIVAS_CLAVE = [
-    'mejora', 'nuevo', 'nueva', 'beneficia', 'beneficio', 'inaugura', 'inauguracion',
-    'electrico', 'sostenible', 'renueva', 'renovacion', 'avanza', 'seguro', 
-    'comodidad', 'eficiente', 'rapido', 'rescate', 'inversion', 'solucion'
+    # mejoras generales
+    'mejora', 'mejoras', 'mejor_servicio', 'mejor_experiencia',
+    'optimiza', 'optimizacion', 'avance', 'avances',
+    'modernizacion', 'renovacion', 'expansion', 'ampliacion',
+
+    # operación
+    'puntualidad', 'puntual', 'frecuencia', 'frecuencia_alta',
+    'menor_espera', 'fluido', 'fluidez', 'continuidad',
+    'menos_congestion', 'flujo_constante',
+    'reduce_tiempos', 'ahorro_tiempo', 'viajes_mas_rapidos',
+
+    # cobertura y rutas
+    'nuevas_rutas', 'rutas_extensas', 'cobertura_amplia',
+    'mejor_conectividad', 'integracion', 'sistema_integrado',
+
+    # infraestructura
+    'nuevas_estaciones', 'estaciones_renovadas','portales del sistema TransMilenio',
+    'infraestructura_nueva', 'carriles_exclusivos',
+    'mantenimiento', 'rehabilitacion', 'troncales_ampliadas',
+
+    # tecnología
+    'pago_digital', 'recarga_online', 'app_oficial',
+    'informacion_tiempo_real', 'paneles_informativos',
+    'wifi', 'sistema_inteligente', 'digitalizacion',
+
+    # seguridad
+    'seguridad_reforzada', 'vigilancia', 'camaras',
+    'control_policial', 'reduccion_delito', 'convivencia',
+
+    # ambiente
+    'bajas_emisiones', 'cero_emisiones', 'aire_limpio',
+    'flota_electrica', 'energia_limpia', 'reduccion_co2',
+
+    # experiencia usuario
+    'comodidad_mejorada', 'menos_hacinamiento',
+    'acceso_facil', 'mejor_senalizacion',
+    'orden_estaciones', 'atencion_usuario',
+
+    # gestión
+    'gestion_eficiente', 'transparencia', 'cumplimiento',
+    'avance_proyecto', 'financiacion', 'resultados',
+
+    # impacto social
+    'empleo', 'desarrollo', 'movilidad_mejorada',
+    'calidad_de_vida', 'integracion_ciudad',
+
+    # frases comunes en noticias
+    'entra_en_operacion',
+    'beneficia_a_miles',
+    'mejora_la_movilidad',
+    'fortalece_el_sistema',
+    'reduce_tiempos_de_viaje',
+    'mejora_el_servicio',
+    'aumenta_la_cobertura',
+    'optimiza_los_recorridos',
+    'facilita_el_transporte',
+    'mejora_la_experiencia_del_usuario',
+    'incrementa_la_seguridad',
+    'moderniza_el_sistema',
+    'amplia_la_capacidad',
+    'reduce_la_congestion',
+    'mejora_la_conectividad',
+    'implementa_tecnologia',
+    'renueva_la_flota',
+    'incorpora_buses_electricos'
 ]
 
 # --- Funciones de limpieza de texto ---
