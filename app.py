@@ -4,6 +4,7 @@ from openpyxl import load_workbook
 import datetime
 import joblib
 import numpy as np
+import nltk
 import dossier_utils as utils
 
 # --- Configuración de la página ---
@@ -275,6 +276,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    with st.spinner("Descargando recursos de lenguaje por primera vez..."):
+        nltk.download('stopwords')
+
+
 # ==============================================================================
 # CONSTANTES COMPARTIDAS
 # ==============================================================================
@@ -302,7 +310,6 @@ TIPO_MEDIO_MAP = {
 @st.cache_resource
 def load_ml_models():
     try:
-        # Asegúrate de que los nombres coincidan con los generados en Colab
         sentiment_pipeline = joblib.load('pipeline_sentimiento_tm.pkl')
         topic_pipeline = joblib.load('pipeline_tema_tm.pkl')
         return sentiment_pipeline, topic_pipeline
@@ -334,18 +341,43 @@ def read_dossier(dossier_file):
     return pd.DataFrame(rows_data)
 
 
-def load_config_maps(config_file):
+def load_config_maps(config_file, include_mentions=False):
+    """
+    Carga mapeos desde Configuracion.xlsx.
+
+    Parámetros
+    ----------
+    config_file : archivo subido
+    include_mentions : bool
+        Si True, también carga la hoja 'Menciones' (usado en pestaña 2).
+        Si False, solo carga Regiones e Internet (usado en pestaña 1).
+
+    Retorna
+    -------
+    tuple : (region_map, internet_map) o (region_map, internet_map, mention_map)
+    """
     try:
         config_sheets = pd.read_excel(config_file, sheet_name=None)
+
         region_map = pd.Series(
             config_sheets['Regiones'].iloc[:, 1].values,
             index=config_sheets['Regiones'].iloc[:, 0].astype(str).str.lower().str.strip()
         ).to_dict()
+
         internet_map = pd.Series(
             config_sheets['Internet'].iloc[:, 1].values,
             index=config_sheets['Internet'].iloc[:, 0].astype(str).str.lower().str.strip()
         ).to_dict()
+
+        if include_mentions:
+            mention_map = pd.Series(
+                config_sheets['Menciones'].iloc[:, 1].values,
+                index=config_sheets['Menciones'].iloc[:, 0].astype(str).str.strip()
+            ).to_dict()
+            return region_map, internet_map, mention_map
+
         return region_map, internet_map
+
     except Exception as e:
         st.error(f"**Error al cargar `Configuracion.xlsx`:** {e}")
         st.stop()
@@ -399,8 +431,30 @@ def apply_common_transformations(df, region_map, internet_map):
     return df
 
 
+def apply_mention_mapping(df, mention_map):
+    """
+    Aplica el mapeo de menciones a cada mención individual
+    dentro de celdas que pueden tener valores separados por ';'.
+
+    Ejemplo: "TM;SITP" con mapeo {'TM': 'Transmilenio', 'SITP': 'SITP Provisional'}
+    → "Transmilenio;SITP Provisional"
+    """
+    if 'Menciones - Empresa' not in df.columns:
+        return df
+
+    def map_mentions_cell(cell_value):
+        if not isinstance(cell_value, str) or not cell_value.strip():
+            return cell_value
+        parts = [p.strip() for p in cell_value.split(';')]
+        mapped_parts = [mention_map.get(p, p) for p in parts if p]
+        return '; '.join(mapped_parts)
+
+    df['Menciones - Empresa'] = df['Menciones - Empresa'].apply(map_mentions_cell)
+    return df
+
+
 # ==============================================================================
-# PESTAÑA 1: PROCESO COMPLETO (con IA)
+# PESTAÑA 1: PROCESO COMPLETO (con IA, sin mapeo de menciones)
 # ==============================================================================
 
 def run_full_process(dossier_file, config_file, download_placeholder):
@@ -410,7 +464,7 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     # 1. Modelos y configuración
     progress_bar.progress(5, text="Paso 1 / 7 — Cargando modelos y configuración...")
     sentiment_pipeline, topic_pipeline = load_ml_models()
-    region_map, internet_map = load_config_maps(config_file)
+    region_map, internet_map = load_config_maps(config_file, include_mentions=False)
 
     # 2. Lectura
     progress_bar.progress(15, text="Paso 2 / 7 — Leyendo Dossier...")
@@ -431,18 +485,14 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         df_valid['texto_para_ia'] = (
             df_valid['Título'].fillna('') + ' ' + df_valid['Resumen - Aclaracion'].fillna('')
         )
-        
-        # APLICAR LIMPIEZA UNIFICADA (Idéntica al entrenamiento de Colab)
-        df_valid['texto_limpio'] = df_valid['texto_para_ia'].apply(utils.limpiar_texto)
-        
-        # Predicción de Sentimiento
-        preds_sent = sentiment_pipeline.predict(df_valid['texto_limpio'])
+        preds_sent = sentiment_pipeline.predict(df_valid['texto_para_ia'])
         label_map_inv = {1: 'Positivo', 0: 'Neutro', -1: 'Negativo'}
         df_valid['Tono'] = [label_map_inv.get(p, 'Indefinido') for p in preds_sent]
 
-        # Predicción de Tema (usando exactamente el mismo texto_limpio)
-        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['texto_limpio'])
-        
+        df_valid['resumen_procesado'] = df_valid['texto_para_ia'].apply(
+            utils.preprocess_text_for_topic
+        )
+        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['resumen_procesado'])
         df.update(df_valid[['Tono', 'Temas Generales - Tema']])
 
     # 6. Homogeneización de temas
@@ -525,27 +575,31 @@ def run_full_process(dossier_file, config_file, download_placeholder):
 
 
 # ==============================================================================
-# PESTAÑA 2: EXPANDIR POR MENCIONES (sin IA)
+# PESTAÑA 2: EXPANDIR POR MENCIONES (sin IA, con mapeo de menciones)
 # ==============================================================================
 
 def run_expand_process(dossier_file, config_file, download_placeholder):
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0, text="Iniciando proceso de expansión...")
 
-    # 1. Configuración (sin modelos)
-    progress_bar.progress(10, text="Paso 1 / 4 — Cargando configuración...")
-    region_map, internet_map = load_config_maps(config_file)
+    # 1. Configuración (con menciones, sin modelos)
+    progress_bar.progress(10, text="Paso 1 / 5 — Cargando configuración y mapeo de menciones...")
+    region_map, internet_map, mention_map = load_config_maps(config_file, include_mentions=True)
 
     # 2. Lectura
-    progress_bar.progress(30, text="Paso 2 / 4 — Leyendo Dossier...")
+    progress_bar.progress(25, text="Paso 2 / 5 — Leyendo Dossier...")
     df = read_dossier(dossier_file)
 
     # 3. Transformaciones comunes
-    progress_bar.progress(50, text="Paso 3 / 4 — Aplicando mapeos y normalizaciones...")
+    progress_bar.progress(40, text="Paso 3 / 5 — Aplicando mapeos y normalizaciones...")
     df = apply_common_transformations(df, region_map, internet_map)
 
-    # 4. Expansión por menciones
-    progress_bar.progress(75, text="Paso 4 / 4 — Expandiendo filas por menciones...")
+    # 4. Mapeo de menciones (antes de expandir)
+    progress_bar.progress(55, text="Paso 4 / 5 — Mapeando menciones...")
+    df = apply_mention_mapping(df, mention_map)
+
+    # 5. Expansión por menciones
+    progress_bar.progress(75, text="Paso 5 / 5 — Expandiendo filas por menciones...")
     original_count = len(df)
     df_expanded = utils.expand_by_mentions(df, 'Menciones - Empresa')
     expanded_count = len(df_expanded)
@@ -619,7 +673,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.2</p>
+    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.1</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -653,7 +707,7 @@ with tab_process:
         | `Regiones` | Medio | Región |
         | `Internet` | Medio Original | Medio Mapeado |
 
-        > **Nota:** La columna `Menciones - Empresa` se mantiene tal cual viene en el dossier.
+        > **Nota:** En esta pestaña la columna `Menciones - Empresa` se mantiene tal cual viene en el dossier.
         """)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -714,11 +768,11 @@ with tab_expand:
         <div class="card-title">Expandir filas por menciones</div>
         <div class="step">
             <div class="step-num">1</div>
-            <div class="step-text">Prepara tu archivo <strong>Dossier</strong> (.xlsx) y el archivo <strong>Configuracion.xlsx</strong>.</div>
+            <div class="step-text">Prepara tu archivo <strong>Dossier</strong> (.xlsx) y el archivo <strong>Configuracion.xlsx</strong> (debe incluir la hoja <code>Menciones</code>).</div>
         </div>
         <div class="step">
             <div class="step-num">2</div>
-            <div class="step-text">Sube ambos archivos. Se aplican los mismos mapeos (regiones, medios internet).</div>
+            <div class="step-text">Sube ambos archivos. Se aplican mapeos de regiones, medios internet <strong>y menciones</strong>.</div>
         </div>
         <div class="step">
             <div class="step-num">3</div>
@@ -733,6 +787,9 @@ with tab_expand:
         |------|-----------|-----------|
         | `Regiones` | Medio | Región |
         | `Internet` | Medio Original | Medio Mapeado |
+        | `Menciones` | Mención Original | Mención Mapeada |
+
+        > La hoja `Menciones` es **obligatoria** en esta pestaña para normalizar los nombres antes de expandir.
         """)
 
     st.markdown("<br>", unsafe_allow_html=True)
