@@ -31,10 +31,6 @@ def clean_title(title: str) -> str:
 
 
 def clean_title_for_output(title: str) -> str:
-    """
-    Limpia un título para mostrarlo en el resultado final.
-    Elimina pipes (|), guiones al final y saltos de línea.
-    """
     if not isinstance(title, str):
         return ""
     title = convert_html_entities(title)
@@ -46,14 +42,9 @@ def clean_title_for_output(title: str) -> str:
 
 
 def normalize_title_for_comparison(title: str) -> str:
-    """
-    Normaliza un título para comparación robusta.
-    Incluye abreviaciones comunes del ecosistema Transmilenio.
-    """
     if not isinstance(title, str):
         return ""
     cleaned_title = clean_title_for_output(title)
-
     abbreviations = {
         'tm': 'transmilenio',
         'tmsa': 'transmilenio',
@@ -63,34 +54,22 @@ def normalize_title_for_comparison(title: str) -> str:
         cleaned_title = re.sub(
             fr'\b{abbr}\b', full_text, cleaned_title, flags=re.IGNORECASE
         )
-
     normalized_title = re.sub(r'\W+', ' ', cleaned_title).lower().strip()
     return normalized_title
 
 
 def normalize_url(url) -> str:
-    """
-    Normaliza una URL para comparación:
-    - Minúsculas y sin espacios
-    - Sin trailing slash
-    - Sin prefijo 'www.'
-    - Sin parámetros de query (?...) ni fragmentos (#...)
-    """
     if not isinstance(url, str):
         return ""
     url = url.strip().lower().rstrip('/')
-
     if not url.startswith('http'):
         return ""
-
     url = re.sub(r'^(https?://)www\.', r'\1', url)
     url = re.split(r'[?#]', url)[0].rstrip('/')
-
     return url
 
 
 def corregir_resumen(text: str) -> str:
-    """Limpia y formatea el texto del resumen."""
     if not isinstance(text, str):
         return text
     text = convert_html_entities(text)
@@ -104,7 +83,6 @@ def corregir_resumen(text: str) -> str:
 
 
 def preprocess_text_for_topic(text: str) -> str:
-    """Preprocesa texto para el modelo de tópicos."""
     if not isinstance(text, str):
         return ""
     try:
@@ -123,14 +101,12 @@ def preprocess_text_for_topic(text: str) -> str:
 # --- Funciones de Excel y DataFrame ---
 
 def extract_link_from_cell(cell):
-    """Extrae el target de un hipervínculo de una celda."""
     if cell.hyperlink and cell.hyperlink.target:
         return cell.hyperlink.target
     return cell.value
 
 
 def to_excel_from_df(df: pd.DataFrame, final_order: list) -> bytes:
-    """Convierte un DataFrame a bytes de Excel."""
     output = io.BytesIO()
     final_columns_in_df = [col for col in final_order if col in df.columns]
     df_to_excel = df[final_columns_in_df]
@@ -159,7 +135,6 @@ def to_excel_from_df(df: pd.DataFrame, final_order: list) -> bytes:
 # --- Funciones de Lógica de Negocio (Duplicados) ---
 
 def calculate_title_quality_score(title: str) -> int:
-    """Calcula calidad del título para priorizar cuál mantener."""
     if not isinstance(title, str):
         return -999
     score = 100
@@ -183,33 +158,21 @@ def are_duplicates(
     title_similarity_threshold=0.85,
     date_proximity_days=1
 ) -> bool:
-    """
-    Determina si dos filas son duplicadas.
-
-    REGLAS POR TIPO DE MEDIO:
-    - Internet: ventana flexible, match por título O por URL normalizada
-    - Radio/TV: fecha exacta, si ambas tienen Hora distinta → no duplicada
-    - Prensa/Revista: fecha exacta
-    """
     titulo1 = normalize_title_for_comparison(row1['Título'])
     titulo2 = normalize_title_for_comparison(row2['Título'])
-
     if not titulo1 or not titulo2:
         return False
 
     fecha1 = row1['Fecha']
     fecha2 = row2['Fecha']
-
     if pd.isna(fecha1) or pd.isna(fecha2):
         return False
 
     tipo_medio = row1['Tipo de Medio']
 
-    # --- Validación de ventana temporal ---
     if tipo_medio == 'Internet':
         if abs((fecha1 - fecha2).days) > date_proximity_days:
             return False
-
     elif tipo_medio in ['Radio', 'Televisión']:
         if fecha1.date() != fecha2.date():
             return False
@@ -222,7 +185,6 @@ def are_duplicates(
         if fecha1.date() != fecha2.date():
             return False
 
-    # --- URL match (solo Internet) ---
     if tipo_medio == 'Internet':
         url_col = 'Link (Streaming - Imagen)'
         url1 = normalize_url(row1.get(url_col, ''))
@@ -230,16 +192,12 @@ def are_duplicates(
         if url1 and url2 and url1 == url2:
             return True
 
-    # --- Comparación de títulos ---
     titles_match = False
-
     if titulo1 == titulo2:
         titles_match = True
-
     if not titles_match and len(titulo1) > 15 and len(titulo2) > 15:
         if titulo1 in titulo2 or titulo2 in titulo1:
             titles_match = True
-
     if not titles_match:
         similarity = SequenceMatcher(None, titulo1, titulo2).ratio()
         if similarity >= title_similarity_threshold:
@@ -249,11 +207,6 @@ def are_duplicates(
 
 
 def detect_duplicates_optimized(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Detecta duplicados agrupando por Medio y Mención.
-    Para Transmilenio, donde la mención suele ser la misma,
-    el agrupamiento efectivo es principalmente por Medio.
-    """
     df = df.reset_index(drop=True).reset_index().rename(columns={'index': 'original_index'})
     df['title_quality'] = df['Título'].apply(calculate_title_quality_score)
 
@@ -270,24 +223,19 @@ def detect_duplicates_optimized(df: pd.DataFrame) -> pd.DataFrame:
     for _, group in df.groupby(grouping_keys, dropna=False):
         if len(group) < 2:
             continue
-
         group_rows = group.to_dict('records')
-
         for i in range(len(group_rows)):
             current = group_rows[i]
             if current['original_index'] in duplicate_indices:
                 continue
-
             for j in range(i + 1, len(group_rows)):
                 compare = group_rows[j]
                 if compare['original_index'] in duplicate_indices:
                     continue
-
                 if are_duplicates(pd.Series(current), pd.Series(compare)):
                     duplicate_indices.add(compare['original_index'])
 
     df['is_duplicate'] = df['original_index'].isin(duplicate_indices)
-
     return df.sort_values('original_index').set_index('original_index').drop(columns=['title_quality'])
 
 
@@ -296,44 +244,26 @@ def detect_duplicates_optimized(df: pd.DataFrame) -> pd.DataFrame:
 def expand_by_mentions(df: pd.DataFrame, mention_col: str = 'Menciones - Empresa') -> pd.DataFrame:
     """
     Expande filas según los valores separados por ';' en la columna de menciones.
-
-    Cada fila con N menciones separadas por ';' genera N filas idénticas,
-    cada una con una sola mención. Las filas sin ';' quedan intactas.
-
-    Parámetros
-    ----------
-    df : pd.DataFrame
-        DataFrame ya procesado (con tono, tema, etc.).
-    mention_col : str
-        Nombre de la columna que contiene las menciones separadas por ';'.
-
-    Retorna
-    -------
-    pd.DataFrame
-        DataFrame expandido con filas duplicadas/triplicadas según menciones.
+    Cada fila con N menciones genera N filas idénticas, cada una con una sola mención.
     """
     if mention_col not in df.columns:
         return df.copy()
 
-    # Separar menciones por ';', limpiar espacios y eliminar vacíos
     df = df.copy()
     df[mention_col] = df[mention_col].astype(str).fillna('')
 
     expanded_rows = []
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         mentions_raw = row[mention_col]
         mentions = [m.strip() for m in mentions_raw.split(';') if m.strip()]
 
         if not mentions:
-            # Si está vacía, mantener la fila tal cual
             expanded_rows.append(row)
         elif len(mentions) == 1:
-            # Una sola mención, mantener tal cual
             row_copy = row.copy()
             row_copy[mention_col] = mentions[0]
             expanded_rows.append(row_copy)
         else:
-            # Múltiples menciones → duplicar/triplicar fila
             for mention in mentions:
                 row_copy = row.copy()
                 row_copy[mention_col] = mention
