@@ -4,7 +4,6 @@ from openpyxl import load_workbook
 import datetime
 import joblib
 import numpy as np
-import nltk
 import dossier_utils as utils
 
 # --- Configuración de la página ---
@@ -276,14 +275,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Descarga NLTK stopwords ---
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    with st.spinner("Descargando recursos de lenguaje por primera vez..."):
-        nltk.download('stopwords')
-
-
 # ==============================================================================
 # CONSTANTES COMPARTIDAS
 # ==============================================================================
@@ -311,6 +302,7 @@ TIPO_MEDIO_MAP = {
 @st.cache_resource
 def load_ml_models():
     try:
+        # Asegúrate de que los nombres coincidan con los generados en Colab
         sentiment_pipeline = joblib.load('pipeline_sentimiento_tm.pkl')
         topic_pipeline = joblib.load('pipeline_tema_tm.pkl')
         return sentiment_pipeline, topic_pipeline
@@ -439,14 +431,18 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         df_valid['texto_para_ia'] = (
             df_valid['Título'].fillna('') + ' ' + df_valid['Resumen - Aclaracion'].fillna('')
         )
-        preds_sent = sentiment_pipeline.predict(df_valid['texto_para_ia'])
+        
+        # APLICAR LIMPIEZA UNIFICADA (Idéntica al entrenamiento de Colab)
+        df_valid['texto_limpio'] = df_valid['texto_para_ia'].apply(utils.limpiar_texto)
+        
+        # Predicción de Sentimiento
+        preds_sent = sentiment_pipeline.predict(df_valid['texto_limpio'])
         label_map_inv = {1: 'Positivo', 0: 'Neutro', -1: 'Negativo'}
         df_valid['Tono'] = [label_map_inv.get(p, 'Indefinido') for p in preds_sent]
 
-        df_valid['resumen_procesado'] = df_valid['texto_para_ia'].apply(
-            utils.preprocess_text_for_topic
-        )
-        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['resumen_procesado'])
+        # Predicción de Tema (usando exactamente el mismo texto_limpio)
+        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['texto_limpio'])
+        
         df.update(df_valid[['Tono', 'Temas Generales - Tema']])
 
     # 6. Homogeneización de temas
@@ -623,7 +619,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.1</p>
+    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.2</p>
 </div>
 """, unsafe_allow_html=True)
 
