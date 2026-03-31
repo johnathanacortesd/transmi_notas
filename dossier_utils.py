@@ -100,10 +100,10 @@ PALABRAS_POSITIVAS_CLAVE = [
 # NUEVO: PALABRAS NEUTRAS / INFORMATIVAS / LOGÍSTICAS (Multiplicador x3)
 # Ahoga el sesgo negativo cuando se reportan trámites u operativos.
 PALABRAS_NEUTRAS_CLAVE = [
-    'tramite', 'tramites', 'inscripcion', 'inscripciones', 'habilitado','votacion',
-    'habilitada', 'habilitados', 'habilitadas', 'habilitaron', 'puntos', 'punto',
-    'jornada', 'jornadas', 'proceso', 'procesos', 'registro', 'registros','votación',
-    'informacion', 'servicio', 'servicios', 'operacion', 'horario', 'horarios',
+    'tramite', 'tramites', 'inscripcion', 'inscripciones', 'habilitado','votacion','portales',
+    'habilitada', 'habilitados', 'habilitadas', 'habilitaron', 'puntos', 'punto','plazo',
+    'jornada', 'jornadas', 'proceso', 'procesos', 'registro', 'registros','votación','portal',
+    'informacion', 'servicio', 'servicios', 'operacion', 'horario', 'horarios','Plazo para inscripción de cédulas',
     'ruta', 'rutas', 'movilidad', 'censo', 'electoral', 'ciudadanos', 'espacios',
     'comerciales', 'portales', 'instalaron', 'moviles', 'campana', 'campanas',
     'actividad', 'actividades', 'logistica'
