@@ -28,7 +28,7 @@ SINONIMOS_TM = {
     'troncal': 'transmilenio'
 }
 
-# SE AMPLIÓ EL DICCIONARIO PARA INCLUIR VARIACIONES DE GÉNERO, PLURALES Y NUEVOS VERBOS/ADJETIVOS
+# PALABRAS POSITIVAS (Multiplicador x4)
 PALABRAS_POSITIVAS_CLAVE = [
     # mejoras generales
     'mejora', 'mejoras', 'mejor_servicio', 'mejor_experiencia',
@@ -46,7 +46,7 @@ PALABRAS_POSITIVAS_CLAVE = [
     'mejor_conectividad', 'integracion', 'sistema_integrado',
 
     # infraestructura
-    'nuevas_estaciones', 'estaciones_renovadas','portales del sistema TransMilenio',
+    'nuevas_estaciones', 'estaciones_renovadas',
     'infraestructura_nueva', 'carriles_exclusivos',
     'mantenimiento', 'rehabilitacion', 'troncales_ampliadas',
 
@@ -97,6 +97,18 @@ PALABRAS_POSITIVAS_CLAVE = [
     'incorpora_buses_electricos'
 ]
 
+# NUEVO: PALABRAS NEUTRAS / INFORMATIVAS / LOGÍSTICAS (Multiplicador x3)
+# Ahoga el sesgo negativo cuando se reportan trámites u operativos.
+PALABRAS_NEUTRAS_CLAVE = [
+    'tramite', 'tramites', 'inscripcion', 'inscripciones', 'habilitado','votacion',
+    'habilitada', 'habilitados', 'habilitadas', 'habilitaron', 'puntos', 'punto',
+    'jornada', 'jornadas', 'proceso', 'procesos', 'registro', 'registros','votación',
+    'informacion', 'servicio', 'servicios', 'operacion', 'horario', 'horarios',
+    'ruta', 'rutas', 'movilidad', 'censo', 'electoral', 'ciudadanos', 'espacios',
+    'comerciales', 'portales', 'instalaron', 'moviles', 'campana', 'campanas',
+    'actividad', 'actividades', 'logistica'
+]
+
 # --- Funciones de limpieza de texto ---
 
 def limpiar_texto(texto: str) -> str:
@@ -130,9 +142,16 @@ def limpiar_texto(texto: str) -> str:
             
         if p not in STOPWORDS_ES and len(p) > 2:
             palabras.append(p)
-            # REFUERZO POSITIVO: Si es una palabra muy buena, la repetimos para darle más peso
+            
+            # REFUERZO AGRESIVO:
+            # Multiplicamos x4 (añadimos 3 veces más) para vencer el logaritmo del TF-IDF
             if p in PALABRAS_POSITIVAS_CLAVE:
-                palabras.append(p) # Se añade por segunda vez
+                palabras.extend([p] * 3) 
+            
+            # REFUERZO NEUTRO:
+            # Multiplicamos x3 (añadimos 2 veces más) para contexto logístico
+            elif p in PALABRAS_NEUTRAS_CLAVE:
+                palabras.extend([p] * 2)
 
     return ' '.join(palabras)
 
