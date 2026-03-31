@@ -274,6 +274,23 @@ st.markdown("""
         padding-bottom: 0.5rem;
         border-bottom: 2px solid #E8ECEF;
     }
+
+    /* ── TABS ── */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #8F6B6B;
+        border-radius: 8px 8px 0 0;
+        padding: 0.6rem 1.4rem;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #B71C1C !important;
+        border-bottom: 3px solid #D32F2F;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -286,7 +303,7 @@ except LookupError:
 
 
 # ==============================================================================
-# FUNCIONES DE CARGA Y PROCESO PRINCIPAL
+# FUNCIONES DE CARGA Y PROCESO
 # ==============================================================================
 
 @st.cache_resource
@@ -305,11 +322,7 @@ def load_ml_models():
 
 
 def read_dossier(dossier_file):
-    """
-    Lee el dossier SIN expandir menciones.
-    Para Transmilenio la mención suele ser siempre la misma empresa,
-    así que no se hace split por punto y coma.
-    """
+    """Lee el dossier sin expandir menciones."""
     wb = load_workbook(dossier_file)
     sheet = wb.active
     original_headers = [cell.value for cell in sheet[1] if cell.value]
@@ -332,9 +345,7 @@ def read_dossier(dossier_file):
 
 
 def run_full_process(dossier_file, config_file, download_placeholder):
-    """
-    Ejecuta el proceso completo para Transmilenio.
-    """
+    """Ejecuta el proceso completo para Transmilenio."""
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0, text="Iniciando proceso...")
 
@@ -352,10 +363,6 @@ def run_full_process(dossier_file, config_file, download_placeholder):
             config_sheets['Internet'].iloc[:, 1].values,
             index=config_sheets['Internet'].iloc[:, 0].astype(str).str.lower().str.strip()
         ).to_dict()
-        mention_map = pd.Series(
-            config_sheets['Menciones'].iloc[:, 1].values,
-            index=config_sheets['Menciones'].iloc[:, 0].astype(str).str.strip()
-        ).to_dict()
         final_topic_map = pd.Series(
             config_sheets['Mapa_Temas'].iloc[:, 1].values,
             index=config_sheets['Mapa_Temas'].iloc[:, 0].astype(str).str.strip()
@@ -364,7 +371,7 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         st.error(f"**Error al cargar `Configuracion.xlsx`:** {e}")
         st.stop()
 
-    # --- 2. Lectura (sin expansión de menciones) ---
+    # --- 2. Lectura ---
     progress_bar.progress(15, text="Paso 2 / 8 — Leyendo Dossier...")
     df = read_dossier(dossier_file)
 
@@ -396,12 +403,8 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     if 'Medio' in df.columns:
         df['Región'] = df['Medio'].astype(str).str.lower().str.strip().map(region_map)
 
-    if 'Menciones - Empresa' in df.columns:
-        df['Menciones - Empresa'] = (
-            df['Menciones - Empresa'].astype(str).str.strip()
-            .map(mention_map)
-            .fillna(df['Menciones - Empresa'])
-        )
+    # Menciones - Empresa se mantiene sin mapear
+    # (ya no se usa la hoja 'Menciones' de Configuracion.xlsx)
 
     is_internet = df['Tipo de Medio'] == 'Internet'
     if is_internet.any():
@@ -551,6 +554,104 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 
+def run_expand_mentions(expand_file, download_placeholder_expand):
+    """
+    Proceso de expansión por menciones.
+    Recibe un xlsx ya procesado y duplica/triplica filas
+    según las menciones separadas por ';' en Menciones - Empresa.
+    """
+    st.markdown("<hr>", unsafe_allow_html=True)
+    progress_bar = st.progress(0, text="Iniciando expansión por menciones...")
+
+    # --- 1. Leer archivo ---
+    progress_bar.progress(20, text="Paso 1 / 3 — Leyendo archivo...")
+    try:
+        df = pd.read_excel(expand_file)
+    except Exception as e:
+        st.error(f"**Error al leer el archivo:** {e}")
+        st.stop()
+
+    mention_col = 'Menciones - Empresa'
+    if mention_col not in df.columns:
+        st.error(
+            f"**Error:** No se encontró la columna `{mention_col}` en el archivo. "
+            "Asegúrate de subir un dossier con esa columna."
+        )
+        st.stop()
+
+    original_count = len(df)
+
+    # --- 2. Expandir ---
+    progress_bar.progress(60, text="Paso 2 / 3 — Expandiendo filas por menciones...")
+    df_expanded = utils.expand_by_mentions(df, mention_col)
+    expanded_count = len(df_expanded)
+    new_rows = expanded_count - original_count
+
+    # --- 3. Resultados ---
+    progress_bar.progress(100, text="✓ Expansión completada")
+
+    filename = f"Dossier_Expandido_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+    # Usar el mismo orden de columnas que el original
+    all_cols = list(df_expanded.columns)
+    excel_data = utils.to_excel_from_df(df_expanded, all_cols)
+
+    # ── Botón de descarga ──
+    with download_placeholder_expand:
+        st.download_button(
+            label="⬇ Descargar archivo expandido (.xlsx)",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_expanded"
+        )
+
+    # Banner de éxito
+    st.markdown(f"""
+    <div class="success-banner">
+        <div class="icon">📋</div>
+        <div class="text">
+            <strong>Expansión finalizada correctamente</strong>
+            <span>{original_count:,} filas originales → {expanded_count:,} filas expandidas (+{new_rows:,} nuevas)</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Métricas
+    st.markdown('<p class="results-header">Resumen de la expansión</p>', unsafe_allow_html=True)
+
+    # Contar menciones únicas
+    unique_mentions = df_expanded[mention_col].nunique()
+
+    st.markdown(f"""
+    <div class="metrics-row">
+        <div class="metric-card">
+            <div class="metric-value">{original_count:,}</div>
+            <div class="metric-label">Filas originales</div>
+        </div>
+        <div class="metric-card accent">
+            <div class="metric-value">{expanded_count:,}</div>
+            <div class="metric-label">Filas después de expandir</div>
+        </div>
+        <div class="metric-card muted">
+            <div class="metric-value">{unique_mentions:,}</div>
+            <div class="metric-label">Menciones únicas detectadas</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Desglose por mención
+    with st.expander("📊 Ver desglose por mención"):
+        mention_counts = df_expanded[mention_col].value_counts().reset_index()
+        mention_counts.columns = ['Mención', 'Cantidad de filas']
+        st.dataframe(mention_counts, use_container_width=True, hide_index=True)
+
+    # Previsualización
+    st.markdown('<p class="results-header">Previsualización de resultados</p>', unsafe_allow_html=True)
+    display_cols = [c for c in ['Fecha', 'Medio', 'Tipo de Medio', 'Título', 'Tono', 'Tema', mention_col] if c in df_expanded.columns]
+    st.dataframe(df_expanded[display_cols], use_container_width=True, hide_index=True)
+
+
 # ==============================================================================
 # INTERFAZ PRINCIPAL
 # ==============================================================================
@@ -558,103 +659,180 @@ def run_full_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.0</p>
+    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.1</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="card">
-    <div class="card-title">Cómo usar esta herramienta</div>
-    <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-text">Prepara tu archivo <strong>Dossier</strong> (.xlsx) y el archivo <strong>Configuracion.xlsx</strong>.</div>
-    </div>
-    <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-text">Sube ambos archivos en el área de carga de abajo. El sistema los detecta automáticamente.</div>
-    </div>
-    <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-text">Haz clic en <strong>Iniciar proceso</strong>. Al finalizar, el botón de descarga aparecerá justo a su lado.</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# ── Pestañas principales ──
+tab_process, tab_expand = st.tabs(["🔄 Procesar Dossier", "📋 Expandir por Menciones"])
 
-with st.expander("📋  Ver estructura requerida para Configuracion.xlsx"):
+# ==============================================================================
+# PESTAÑA 1: PROCESO COMPLETO
+# ==============================================================================
+with tab_process:
     st.markdown("""
-    | Hoja | Columna A | Columna B |
-    |------|-----------|-----------|
-    | `Regiones` | Medio | Región |
-    | `Internet` | Medio Original | Medio Mapeado |
-    | `Menciones` | Mención Original | Mención Mapeada |
-    | `Mapa_Temas` | Temas Generales - Tema | Tema |
-    """)
+    <div class="card">
+        <div class="card-title">Cómo usar esta herramienta</div>
+        <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">Prepara tu archivo <strong>Dossier</strong> (.xlsx) y el archivo <strong>Configuracion.xlsx</strong>.</div>
+        </div>
+        <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">Sube ambos archivos en el área de carga de abajo. El sistema los detecta automáticamente.</div>
+        </div>
+        <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">Haz clic en <strong>Iniciar proceso</strong>. Al finalizar, el botón de descarga aparecerá justo a su lado.</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("📋  Ver estructura requerida para Configuracion.xlsx"):
+        st.markdown("""
+        | Hoja | Columna A | Columna B |
+        |------|-----------|-----------|
+        | `Regiones` | Medio | Región |
+        | `Internet` | Medio Original | Medio Mapeado |
+        | `Mapa_Temas` | Temas Generales - Tema | Tema |
 
-# Carga de archivos
-st.markdown('<div class="card-title">Carga de archivos</div>', unsafe_allow_html=True)
-uploaded_files = st.file_uploader(
-    "Arrastra los archivos aquí o haz clic para seleccionarlos",
-    type=["xlsx"],
-    accept_multiple_files=True,
-    label_visibility="collapsed"
-)
+        > **Nota:** La columna `Menciones - Empresa` se mantiene tal cual viene en el dossier original, no requiere mapeo.
+        """)
 
-dossier_file, config_file = None, None
+    st.markdown("<br>", unsafe_allow_html=True)
 
-if uploaded_files:
-    for file in uploaded_files:
-        if 'config' in file.name.lower():
-            config_file = file
-        else:
-            dossier_file = file
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if dossier_file:
-            st.markdown(
-                f'<div class="file-status ok">✓ Dossier cargado — <strong>{dossier_file.name}</strong></div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                '<div class="file-status missing">⚠ No se detectó el archivo Dossier</div>',
-                unsafe_allow_html=True
-            )
-    with col_b:
-        if config_file:
-            st.markdown(
-                f'<div class="file-status ok">✓ Configuración cargada — <strong>{config_file.name}</strong></div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                '<div class="file-status missing">⚠ No se detectó Configuracion.xlsx</div>',
-                unsafe_allow_html=True
-            )
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Fila de botones ──
-col_start, col_download = st.columns(2)
-
-with col_start:
-    start_clicked = st.button(
-        "▶  Iniciar proceso completo",
-        disabled=not (dossier_file and config_file),
-        type="primary"
+    # Carga de archivos
+    st.markdown('<div class="card-title">Carga de archivos</div>', unsafe_allow_html=True)
+    uploaded_files = st.file_uploader(
+        "Arrastra los archivos aquí o haz clic para seleccionarlos",
+        type=["xlsx"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+        key="uploader_process"
     )
 
-with col_download:
-    download_placeholder = st.empty()
-    if not start_clicked:
-        with download_placeholder:
-            st.button(
-                "⬇ Descargar archivo procesado (.xlsx)",
-                disabled=True,
-                type="primary"
-            )
+    dossier_file, config_file = None, None
 
-if start_clicked:
-    run_full_process(dossier_file, config_file, download_placeholder)
+    if uploaded_files:
+        for file in uploaded_files:
+            if 'config' in file.name.lower():
+                config_file = file
+            else:
+                dossier_file = file
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if dossier_file:
+                st.markdown(
+                    f'<div class="file-status ok">✓ Dossier cargado — <strong>{dossier_file.name}</strong></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    '<div class="file-status missing">⚠ No se detectó el archivo Dossier</div>',
+                    unsafe_allow_html=True
+                )
+        with col_b:
+            if config_file:
+                st.markdown(
+                    f'<div class="file-status ok">✓ Configuración cargada — <strong>{config_file.name}</strong></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    '<div class="file-status missing">⚠ No se detectó Configuracion.xlsx</div>',
+                    unsafe_allow_html=True
+                )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Fila de botones ──
+    col_start, col_download = st.columns(2)
+
+    with col_start:
+        start_clicked = st.button(
+            "▶  Iniciar proceso completo",
+            disabled=not (dossier_file and config_file),
+            type="primary",
+            key="btn_start_process"
+        )
+
+    with col_download:
+        download_placeholder = st.empty()
+        if not start_clicked:
+            with download_placeholder:
+                st.button(
+                    "⬇ Descargar archivo procesado (.xlsx)",
+                    disabled=True,
+                    type="primary",
+                    key="btn_download_placeholder"
+                )
+
+    if start_clicked:
+        run_full_process(dossier_file, config_file, download_placeholder)
+
+
+# ==============================================================================
+# PESTAÑA 2: EXPANDIR POR MENCIONES
+# ==============================================================================
+with tab_expand:
+    st.markdown("""
+    <div class="card">
+        <div class="card-title">Expandir filas por menciones</div>
+        <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">Sube un archivo <strong>.xlsx ya procesado</strong> que contenga la columna <code>Menciones - Empresa</code>.</div>
+        </div>
+        <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">El sistema detectará las menciones separadas por <strong>punto y coma (;)</strong> y duplicará/triplicará cada fila según corresponda.</div>
+        </div>
+        <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">Cada fila expandida mantiene <strong>todos los valores originales</strong> (tono, tema, medio, etc.), solo cambia la mención.</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    st.markdown('<div class="card-title">Carga del archivo a expandir</div>', unsafe_allow_html=True)
+    expand_file = st.file_uploader(
+        "Sube el archivo .xlsx procesado",
+        type=["xlsx"],
+        accept_multiple_files=False,
+        label_visibility="collapsed",
+        key="uploader_expand"
+    )
+
+    if expand_file:
+        st.markdown(
+            f'<div class="file-status ok">✓ Archivo cargado — <strong>{expand_file.name}</strong></div>',
+            unsafe_allow_html=True
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_expand_start, col_expand_download = st.columns(2)
+
+    with col_expand_start:
+        expand_clicked = st.button(
+            "▶  Expandir por menciones",
+            disabled=not expand_file,
+            type="primary",
+            key="btn_start_expand"
+        )
+
+    with col_expand_download:
+        download_placeholder_expand = st.empty()
+        if not expand_clicked:
+            with download_placeholder_expand:
+                st.button(
+                    "⬇ Descargar archivo expandido (.xlsx)",
+                    disabled=True,
+                    type="primary",
+                    key="btn_download_expand_placeholder"
+                )
+
+    if expand_clicked:
+        run_expand_mentions(expand_file, download_placeholder_expand)
