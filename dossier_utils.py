@@ -3,10 +3,76 @@ import html
 import io
 import pandas as pd
 from difflib import SequenceMatcher
-from nltk.corpus import stopwords
+from unidecode import unidecode
 
+# ==============================================================================
+# CONSTANTES DE PREPROCESAMIENTO IA (Idénticas al modelo de Colab)
+# ==============================================================================
+
+STOPWORDS_ES = set("""
+a ante bajo cabe con contra de desde durante en entre hacia hasta mediante
+para por segun sin so sobre tras y o u e la el los las un una unos unas
+lo al del se su sus le les mi mis tu tus nuestro nuestros vuestra vuestras
+este esta estos estas ese esa esos esas aquel aquella aquellos aquellas
+que cual cuales quien quienes cuyo cuya cuyos cuyas como cuando donde es
+son fue fueron era eran sera seran seria serian he ha han habia habrian
+hay hubo habra habria estoy esta estan estaba estaban estamos estar estare
+estaria estuvieron estarian estuvo asi ya mas menos tan tanto cada
+""".split())
+
+SINONIMOS_TM = {
+    'tm': 'transmilenio',
+    'transmi': 'transmilenio',
+    'alimentador': 'sitp',
+    'zonal': 'sitp',
+    'troncal': 'transmilenio'
+}
+
+PALABRAS_POSITIVAS_CLAVE = [
+    'mejora', 'nuevo', 'nueva', 'beneficia', 'beneficio', 'inaugura', 'inauguracion',
+    'electrico', 'sostenible', 'renueva', 'renovacion', 'avanza', 'seguro', 
+    'comodidad', 'eficiente', 'rapido', 'rescate', 'inversion', 'solucion'
+]
 
 # --- Funciones de limpieza de texto ---
+
+def limpiar_texto(texto: str) -> str:
+    """Limpia, normaliza el texto y aplica reglas de negocio para Transporte Público.
+       ESTA FUNCIÓN DEBE SER IDÉNTICA A LA USADA EN EL ENTRENAMIENTO."""
+    if pd.isna(texto) or texto == "":
+        return ""
+
+    # Convertir a string y lowercase
+    texto = str(texto).lower()
+
+    # Normalizar caracteres especiales (acentos)
+    texto = unidecode(texto)
+
+    # Remover URLs, menciones y hashtags
+    texto = re.sub(r'http\S+|www\S+', '', texto)
+    texto = re.sub(r'@\w+|#\w+', '', texto)
+
+    # Remover caracteres especiales y números
+    texto = re.sub(r'[^a-z\s]', ' ', texto)
+
+    # Normalizar espacios
+    texto = re.sub(r'\s+', ' ', texto).strip()
+
+    # Procesar palabras
+    palabras = []
+    for p in texto.split():
+        # Unificar sinónimos (ej: tm -> transmilenio)
+        if p in SINONIMOS_TM:
+            p = SINONIMOS_TM[p]
+            
+        if p not in STOPWORDS_ES and len(p) > 2:
+            palabras.append(p)
+            # REFUERZO POSITIVO: Si es una palabra muy buena, la repetimos para darle más peso
+            if p in PALABRAS_POSITIVAS_CLAVE:
+                palabras.append(p) # Se añade por segunda vez
+
+    return ' '.join(palabras)
+
 
 def convert_html_entities(text: str) -> str:
     if not isinstance(text, str):
@@ -78,22 +144,6 @@ def corregir_resumen(text: str) -> str:
     if text and not text.endswith('...'):
         text = text.rstrip('.') + '...'
     return text
-
-
-def preprocess_text_for_topic(text: str) -> str:
-    if not isinstance(text, str):
-        return ""
-    try:
-        stop_words_list = set(stopwords.words('spanish'))
-    except Exception:
-        stop_words_list = set([
-            'de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del',
-            'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una',
-            'su', 'al', 'lo'
-        ])
-    token_pattern_re = re.compile(r"\b\w+\b", flags=re.UNICODE)
-    tokens = token_pattern_re.findall(text.lower())
-    return " ".join(tok for tok in tokens if tok not in stop_words_list)
 
 
 # --- Funciones de Excel y DataFrame ---
