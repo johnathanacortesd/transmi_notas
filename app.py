@@ -4,8 +4,6 @@ from openpyxl import load_workbook
 import datetime
 import joblib
 import numpy as np
-import re
-from unidecode import unidecode
 import dossier_utils as utils
 
 # --- Configuración de la página ---
@@ -279,43 +277,6 @@ st.markdown("""
 
 
 # ==============================================================================
-# MOTOR DE PROCESAMIENTO NLP (Reemplaza NLTK y mantiene la precisión)
-# ==============================================================================
-
-STOPWORDS_ES = {'de', 'la', 'el', 'en', 'y', 'a', 'los', 'las', 'del', 'al', 'un', 'una', 'sobre', 'tras', 'ante', 'bajo', 'mediante', 'cuando'}
-SINONIMOS = {'tm': 'transmilenio', 'transmi': 'transmilenio', 'articulado': 'bus transmilenio', 'alimentador': 'bus alimentador sitp', 'zonal': 'ruta zonal sitp', 'troncal': 'ruta troncal transmilenio', 'bici': 'bicicleta'}
-PALABRAS_MULT = {'accidente', 'falla', 'retraso', 'caos', 'colapso', 'robo', 'inseguridad', 'peligro', 'mejora', 'nuevo', 'nueva', 'beneficia', 'inaugura', 'electrico', 'sostenible', 'solucion'}
-
-URL_PAT = re.compile(r'http\S+|www\.\S+')
-MEN_PAT = re.compile(r'@\w+')
-HASH_PAT = re.compile(r'#(\w+)')
-NUM_PAT = re.compile(r'\d+')
-PUNCT_PAT = re.compile(r'[^\w\s]')
-
-def limpiar_texto_ia(texto):
-    """Limpia el texto EXACTAMENTE como se hizo durante el entrenamiento en Colab."""
-    if pd.isna(texto) or not str(texto).strip(): return ""
-    t = unidecode(str(texto).lower())
-    t = URL_PAT.sub('', t)
-    t = MEN_PAT.sub('', t)
-    t = HASH_PAT.sub(r'\1', t)
-    t = NUM_PAT.sub('', t)
-    t = PUNCT_PAT.sub(' ', t)
-    
-    for abrev, expansion in SINONIMOS.items():
-        t = re.sub(rf'\b{abrev}\b', expansion, t)
-        
-    palabras_finales = []
-    for palabra in t.split():
-        if len(palabra) > 2 and palabra not in STOPWORDS_ES:
-            palabras_finales.append(palabra)
-            if palabra in PALABRAS_MULT:
-                palabras_finales.extend([palabra] * 5) # Multiplicador de pesos
-                
-    return ' '.join(palabras_finales)
-
-
-# ==============================================================================
 # CONSTANTES COMPARTIDAS
 # ==============================================================================
 
@@ -336,7 +297,7 @@ TIPO_MEDIO_MAP = {
 
 
 # ==============================================================================
-# FUNCIONES DE CARGA
+# FUNCIONES DE CARGA Y TRANSFORMACIÓN
 # ==============================================================================
 
 @st.cache_resource
@@ -348,7 +309,7 @@ def load_ml_models():
     except FileNotFoundError as e:
         st.error(
             f"**Error Crítico:** No se encontró `{e.filename}`. "
-            "Asegúrate de que los archivos .pkl estén en la misma carpeta."
+            "Asegúrate de que los archivos .pkl estén en la misma carpeta que app.py."
         )
         st.stop()
 
@@ -486,14 +447,16 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     df_valid = df[~df['is_duplicate']].copy()
     
     if not df_valid.empty:
-        # AQUÍ ESTÁ LA CORRECCIÓN DE LA PRECISIÓN (Data Shift Arreglado)
+        # 1. Unimos el texto crudo
         df_valid['texto_crudo'] = df_valid['Título'].fillna('') + ' ' + df_valid['Resumen - Aclaracion'].fillna('')
-        df_valid['texto_limpio_ia'] = df_valid['texto_crudo'].apply(limpiar_texto_ia)
         
-        # Predicción de Sentimiento
+        # 2. Limpieza EXACTA usada en el entrenamiento (Llama a utils)
+        df_valid['texto_limpio_ia'] = df_valid['texto_crudo'].apply(utils.limpiar_texto)
+        
+        # 3. Predicción de Sentimiento
         preds_sent = sentiment_pipeline.predict(df_valid['texto_limpio_ia'])
         
-        # Mapeo universal (Soporta si el modelo nuevo escupe textos o el viejo escupe 0,1,2)
+        # Función universal para mapear el tono
         def capitalizar_tono(p):
             if str(p).lstrip('-').isdigit(): 
                 return {2: 'Positivo', 1: 'Neutro', 0: 'Negativo', -1: 'Negativo'}.get(int(p), 'Indefinido')
@@ -501,9 +464,10 @@ def run_full_process(dossier_file, config_file, download_placeholder):
 
         df_valid['Tono'] = [capitalizar_tono(p) for p in preds_sent]
         
-        # Predicción de Tema
+        # 4. Predicción de Tema
         df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['texto_limpio_ia'])
         
+        # 5. Actualizamos el dataframe maestro
         df.update(df_valid[['Tono', 'Temas Generales - Tema']])
 
     progress_bar.progress(85, text="Paso 6 / 7 — Homogeneizando temas...")
@@ -676,7 +640,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.2</p>
+    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.3</p>
 </div>
 """, unsafe_allow_html=True)
 
