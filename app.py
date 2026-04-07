@@ -4,7 +4,8 @@ from openpyxl import load_workbook
 import datetime
 import joblib
 import numpy as np
-import nltk
+import re
+from unidecode import unidecode
 import dossier_utils as utils
 
 # --- Configuración de la página ---
@@ -276,11 +277,42 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    with st.spinner("Descargando recursos de lenguaje por primera vez..."):
-        nltk.download('stopwords')
+
+# ==============================================================================
+# MOTOR DE PROCESAMIENTO NLP (Reemplaza NLTK y mantiene la precisión)
+# ==============================================================================
+
+STOPWORDS_ES = {'de', 'la', 'el', 'en', 'y', 'a', 'los', 'las', 'del', 'al', 'un', 'una', 'sobre', 'tras', 'ante', 'bajo', 'mediante', 'cuando'}
+SINONIMOS = {'tm': 'transmilenio', 'transmi': 'transmilenio', 'articulado': 'bus transmilenio', 'alimentador': 'bus alimentador sitp', 'zonal': 'ruta zonal sitp', 'troncal': 'ruta troncal transmilenio', 'bici': 'bicicleta'}
+PALABRAS_MULT = {'accidente', 'falla', 'retraso', 'caos', 'colapso', 'robo', 'inseguridad', 'peligro', 'mejora', 'nuevo', 'nueva', 'beneficia', 'inaugura', 'electrico', 'sostenible', 'solucion'}
+
+URL_PAT = re.compile(r'http\S+|www\.\S+')
+MEN_PAT = re.compile(r'@\w+')
+HASH_PAT = re.compile(r'#(\w+)')
+NUM_PAT = re.compile(r'\d+')
+PUNCT_PAT = re.compile(r'[^\w\s]')
+
+def limpiar_texto_ia(texto):
+    """Limpia el texto EXACTAMENTE como se hizo durante el entrenamiento en Colab."""
+    if pd.isna(texto) or not str(texto).strip(): return ""
+    t = unidecode(str(texto).lower())
+    t = URL_PAT.sub('', t)
+    t = MEN_PAT.sub('', t)
+    t = HASH_PAT.sub(r'\1', t)
+    t = NUM_PAT.sub('', t)
+    t = PUNCT_PAT.sub(' ', t)
+    
+    for abrev, expansion in SINONIMOS.items():
+        t = re.sub(rf'\b{abrev}\b', expansion, t)
+        
+    palabras_finales = []
+    for palabra in t.split():
+        if len(palabra) > 2 and palabra not in STOPWORDS_ES:
+            palabras_finales.append(palabra)
+            if palabra in PALABRAS_MULT:
+                palabras_finales.extend([palabra] * 5) # Multiplicador de pesos
+                
+    return ' '.join(palabras_finales)
 
 
 # ==============================================================================
@@ -342,20 +374,6 @@ def read_dossier(dossier_file):
 
 
 def load_config_maps(config_file, include_mentions=False):
-    """
-    Carga mapeos desde Configuracion.xlsx.
-
-    Parámetros
-    ----------
-    config_file : archivo subido
-    include_mentions : bool
-        Si True, también carga la hoja 'Menciones' (usado en pestaña 2).
-        Si False, solo carga Regiones e Internet (usado en pestaña 1).
-
-    Retorna
-    -------
-    tuple : (region_map, internet_map) o (region_map, internet_map, mention_map)
-    """
     try:
         config_sheets = pd.read_excel(config_file, sheet_name=None)
 
@@ -384,11 +402,8 @@ def load_config_maps(config_file, include_mentions=False):
 
 
 def apply_common_transformations(df, region_map, internet_map):
-    """Transformaciones compartidas entre ambas pestañas."""
     if 'Fecha' in df.columns:
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce', dayfirst=True)
-        if df['Fecha'].isna().any():
-            st.warning("⚠️ Algunas fechas no se pudieron convertir.")
 
     if 'Título' in df.columns:
         df['Título'] = df['Título'].apply(utils.clean_title)
@@ -432,13 +447,6 @@ def apply_common_transformations(df, region_map, internet_map):
 
 
 def apply_mention_mapping(df, mention_map):
-    """
-    Aplica el mapeo de menciones a cada mención individual
-    dentro de celdas que pueden tener valores separados por ';'.
-
-    Ejemplo: "TM;SITP" con mapeo {'TM': 'Transmilenio', 'SITP': 'SITP Provisional'}
-    → "Transmilenio;SITP Provisional"
-    """
     if 'Menciones - Empresa' not in df.columns:
         return df
 
@@ -461,41 +469,43 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0, text="Iniciando proceso...")
 
-    # 1. Modelos y configuración
     progress_bar.progress(5, text="Paso 1 / 7 — Cargando modelos y configuración...")
     sentiment_pipeline, topic_pipeline = load_ml_models()
     region_map, internet_map = load_config_maps(config_file, include_mentions=False)
 
-    # 2. Lectura
     progress_bar.progress(15, text="Paso 2 / 7 — Leyendo Dossier...")
     df = read_dossier(dossier_file)
 
-    # 3. Transformaciones comunes
     progress_bar.progress(25, text="Paso 3 / 7 — Aplicando mapeos y normalizaciones...")
     df = apply_common_transformations(df, region_map, internet_map)
 
-    # 4. Detección de duplicados
     progress_bar.progress(45, text="Paso 4 / 7 — Detectando duplicados...")
     df = utils.detect_duplicates_optimized(df)
 
-    # 5. Modelos de IA
     progress_bar.progress(65, text="Paso 5 / 7 — Aplicando modelos de IA a noticias únicas...")
     df_valid = df[~df['is_duplicate']].copy()
+    
     if not df_valid.empty:
-        df_valid['texto_para_ia'] = (
-            df_valid['Título'].fillna('') + ' ' + df_valid['Resumen - Aclaracion'].fillna('')
-        )
-        preds_sent = sentiment_pipeline.predict(df_valid['texto_para_ia'])
-        label_map_inv = {1: 'Positivo', 0: 'Neutro', -1: 'Negativo'}
-        df_valid['Tono'] = [label_map_inv.get(p, 'Indefinido') for p in preds_sent]
+        # AQUÍ ESTÁ LA CORRECCIÓN DE LA PRECISIÓN (Data Shift Arreglado)
+        df_valid['texto_crudo'] = df_valid['Título'].fillna('') + ' ' + df_valid['Resumen - Aclaracion'].fillna('')
+        df_valid['texto_limpio_ia'] = df_valid['texto_crudo'].apply(limpiar_texto_ia)
+        
+        # Predicción de Sentimiento
+        preds_sent = sentiment_pipeline.predict(df_valid['texto_limpio_ia'])
+        
+        # Mapeo universal (Soporta si el modelo nuevo escupe textos o el viejo escupe 0,1,2)
+        def capitalizar_tono(p):
+            if str(p).lstrip('-').isdigit(): 
+                return {2: 'Positivo', 1: 'Neutro', 0: 'Negativo', -1: 'Negativo'}.get(int(p), 'Indefinido')
+            return str(p).capitalize()
 
-        df_valid['resumen_procesado'] = df_valid['texto_para_ia'].apply(
-            utils.preprocess_text_for_topic
-        )
-        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['resumen_procesado'])
+        df_valid['Tono'] = [capitalizar_tono(p) for p in preds_sent]
+        
+        # Predicción de Tema
+        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['texto_limpio_ia'])
+        
         df.update(df_valid[['Tono', 'Temas Generales - Tema']])
 
-    # 6. Homogeneización de temas
     progress_bar.progress(85, text="Paso 6 / 7 — Homogeneizando temas...")
     df_valid_homog = df[~df['is_duplicate']].copy()
     if not df_valid_homog.empty and 'Temas Generales - Tema' in df_valid_homog.columns:
@@ -510,14 +520,12 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         df_valid_homog['Temas Generales - Tema'] = homogenized_temas
         df.update(df_valid_homog[['Temas Generales - Tema']])
 
-    # Marcado final de duplicadas
     mask_dup = df['is_duplicate']
     if mask_dup.any():
         if 'Temas Generales - Tema' in df.columns:
             df.loc[mask_dup, 'Temas Generales - Tema'] = '-'
         df.loc[mask_dup, 'Tono'] = 'Duplicada'
 
-    # 7. Resultados
     progress_bar.progress(100, text="✓ Proceso completado")
 
     total        = len(df)
@@ -582,23 +590,18 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0, text="Iniciando proceso de expansión...")
 
-    # 1. Configuración (con menciones, sin modelos)
     progress_bar.progress(10, text="Paso 1 / 5 — Cargando configuración y mapeo de menciones...")
     region_map, internet_map, mention_map = load_config_maps(config_file, include_mentions=True)
 
-    # 2. Lectura
     progress_bar.progress(25, text="Paso 2 / 5 — Leyendo Dossier...")
     df = read_dossier(dossier_file)
 
-    # 3. Transformaciones comunes
     progress_bar.progress(40, text="Paso 3 / 5 — Aplicando mapeos y normalizaciones...")
     df = apply_common_transformations(df, region_map, internet_map)
 
-    # 4. Mapeo de menciones (antes de expandir)
     progress_bar.progress(55, text="Paso 4 / 5 — Mapeando menciones...")
     df = apply_mention_mapping(df, mention_map)
 
-    # 5. Expansión por menciones
     progress_bar.progress(75, text="Paso 5 / 5 — Expandiendo filas por menciones...")
     original_count = len(df)
     df_expanded = utils.expand_by_mentions(df, 'Menciones - Empresa')
@@ -673,7 +676,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.1</p>
+    <p>Limpieza, enriquecimiento y análisis automático de dossiers · v1.2</p>
 </div>
 """, unsafe_allow_html=True)
 
