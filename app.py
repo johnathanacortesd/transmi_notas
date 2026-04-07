@@ -277,15 +277,24 @@ st.markdown("""
 
 
 # ==============================================================================
-# CONSTANTES COMPARTIDAS
+# CONSTANTES COMPARTIDAS Y ORDEN DE COLUMNAS
 # ==============================================================================
 
-FINAL_ORDER = [
-    "ID Noticia", "Fecha", "Hora", "Medio", "Tipo de Medio", "Sección - Programa",
-    "Región", "Título", "Autor - Conductor", "Nro. Pagina", "Dimensión",
-    "Duración - Nro. Caracteres", "CPE", "Tier", "Audiencia", "Tono",
-    "Temas Generales - Tema", "Resumen - Aclaracion", "Link Nota",
-    "Link (Streaming - Imagen)", "Menciones - Empresa"
+# Orden para Pestaña 1 (Dossier Completo)
+FINAL_ORDER_TAB1 = [
+    "ID Noticia", "Mes", "Fecha", "Hora", "Tipo de Medio", "Medio", "Región", 
+    "Sección - Programa", "Autor - Conductor", "Nro. Pagina", "Dimensión", 
+    "Duración - Nro. Caracteres", "CPE", "Título", "Tier", "Audiencia", "Tono", 
+    "Temas Generales - Tema", "Resumen - Aclaracion", "Entrevistado", "Link Nota", 
+    "Link (Streaming - Imagen)", "comunicado", "Menciones - Empresa"
+]
+
+# Orden para Pestaña 2 (Expansión por Menciones)
+FINAL_ORDER_TAB2 = [
+    "ID Noticia", "Fecha", "Hora", "Tipo de Medio", "Medio", "Región", 
+    "Sección - Programa", "Autor - Conductor", "Nro. Pagina", "Dimensión", 
+    "Duración - Nro. Caracteres", "CPE", "Título", "Tier", "Audiencia", 
+    "Menciones - Empresa", "Link Nota", "Link (Streaming - Imagen)"
 ]
 
 TIPO_MEDIO_MAP = {
@@ -363,9 +372,24 @@ def load_config_maps(config_file, include_mentions=False):
 
 
 def apply_common_transformations(df, region_map, internet_map):
+    # 1. TRATAMIENTO DE FECHA Y CREACIÓN DE MES
     if 'Fecha' in df.columns:
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce', dayfirst=True)
+        meses_es = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+            9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        df['Mes'] = df['Fecha'].dt.month.map(meses_es).fillna('')
+    else:
+        df['Mes'] = ''
 
+    # 2. CREACIÓN DE COLUMNAS VACÍAS REQUERIDAS
+    df['Entrevistado'] = ''
+    if 'comunicado' not in df.columns:
+        df['comunicado'] = ''
+
+    # 3. TRANSFORMACIONES HABITUALES
     if 'Título' in df.columns:
         df['Título'] = df['Título'].apply(utils.clean_title)
 
@@ -482,15 +506,14 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         # Actualizar dataframe original con los datos válidos homogeneizados
         df.update(df_valid[['Tono', 'Temas Generales - Tema']])
 
-    # 5. NUEVA REGLA DE NEGOCIO: "TITULARES"
+    # 5. REGLA DE NEGOCIO: "TITULARES"
     progress_bar.progress(90, text="Aplicando regla de negocio: 'Titulares'...")
     if 'Título' in df.columns:
         mask_titulares = df['Título'].astype(str).str.contains('titulares', case=False, na=False)
         df.loc[mask_titulares, 'Tono'] = 'Neutro'
         df.loc[mask_titulares, 'Temas Generales - Tema'] = 'Entorno e información general'
 
-    # 6. RESTAURAR EL COMPORTAMIENTO ORIGINAL PARA LAS DUPLICADAS
-    # (Hacerlo al final garantiza que si hay un Titular duplicado, diga "Duplicada")
+    # 6. RESTAURAR EL COMPORTAMIENTO ORIGINAL PARA LAS DUPLICADAS EXACTAS
     mask_dup = df['is_duplicate']
     if mask_dup.any():
         if 'Temas Generales - Tema' in df.columns:
@@ -503,7 +526,9 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     dups_count   = int(mask_dup.sum())
     unique_count = total - dups_count
     filename     = f"Dossier_Transmilenio_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-    excel_data   = utils.to_excel_from_df(df, FINAL_ORDER)
+    
+    # IMPORTANTE: Usamos FINAL_ORDER_TAB1
+    excel_data   = utils.to_excel_from_df(df, FINAL_ORDER_TAB1)
 
     with download_placeholder:
         st.download_button(
@@ -542,7 +567,7 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     """, unsafe_allow_html=True)
 
     st.markdown('<p class="results-header">Previsualización de resultados</p>', unsafe_allow_html=True)
-    final_cols_in_df = [col for col in FINAL_ORDER if col in df.columns]
+    final_cols_in_df = [col for col in FINAL_ORDER_TAB1 if col in df.columns]
     df_display = df[final_cols_in_df].copy()
     if 'Fecha' in df_display.columns:
         df_display['Fecha'] = (
@@ -582,7 +607,9 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
     progress_bar.progress(100, text="✓ Expansión completada")
 
     filename   = f"Dossier_Expandido_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-    excel_data = utils.to_excel_from_df(df_expanded, FINAL_ORDER)
+    
+    # IMPORTANTE: Usamos FINAL_ORDER_TAB2
+    excel_data = utils.to_excel_from_df(df_expanded, FINAL_ORDER_TAB2)
 
     with download_placeholder:
         st.download_button(
@@ -629,7 +656,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
         st.dataframe(mention_counts, use_container_width=True, hide_index=True)
 
     st.markdown('<p class="results-header">Previsualización de resultados</p>', unsafe_allow_html=True)
-    final_cols_in_df = [col for col in FINAL_ORDER if col in df_expanded.columns]
+    final_cols_in_df = [col for col in FINAL_ORDER_TAB2 if col in df_expanded.columns]
     df_display = df_expanded[final_cols_in_df].copy()
     if 'Fecha' in df_display.columns:
         df_display['Fecha'] = (
@@ -647,7 +674,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, homogeneización IA y análisis automático de dossiers · v1.6 | Johnathan Cortés 😼</p>
+    <p>Limpieza, homogeneización IA y análisis automático de dossiers · v1.8 | 🐈‍⬛ Johnathan Cortés 😼</p>
 </div>
 """, unsafe_allow_html=True)
 
