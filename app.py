@@ -8,7 +8,7 @@ import dossier_utils as utils
 
 # --- Configuración de la página ---
 st.set_page_config(
-    page_title="TransmiApp Notas",
+    page_title="TransmiApp",
     page_icon="🚇",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -673,7 +673,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 
 st.markdown("""
 <div class="app-header">
-    <div class="badge">Dossier TransmiApp Notas</div>
+    <div class="badge">Dossier TransmiApp</div>
     <p>Limpieza y análisis automático de dossiers · v1.8 | 🕵️ Johnathan Cortés 😼</p>
 </div>
 """, unsafe_allow_html=True)
