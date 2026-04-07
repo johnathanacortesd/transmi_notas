@@ -423,7 +423,7 @@ def apply_mention_mapping(df, mention_map):
 
 
 # ==============================================================================
-# PESTAÑA 1: PROCESO COMPLETO (con IA, sin mapeo de menciones)
+# PESTAÑA 1: PROCESO COMPLETO (con IA, homogeneización de IA, detección de duplicados)
 # ==============================================================================
 
 def run_full_process(dossier_file, config_file, download_placeholder):
@@ -443,52 +443,47 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     progress_bar.progress(45, text="Paso 4 / 7 — Detectando duplicados...")
     df = utils.detect_duplicates_optimized(df)
 
-    progress_bar.progress(65, text="Paso 5 / 7 — Aplicando modelos de IA a noticias únicas...")
-    df_valid = df[~df['is_duplicate']].copy()
+    progress_bar.progress(65, text="Paso 5 / 7 — Aplicando modelos de IA...")
     
-    if not df_valid.empty:
-        # 1. Unimos el texto crudo
-        df_valid['texto_crudo'] = df_valid['Título'].fillna('') + ' ' + df_valid['Resumen - Aclaracion'].fillna('')
+    if not df.empty:
+        # 1. Unimos el texto para todas las filas
+        df['texto_crudo'] = df['Título'].fillna('') + ' ' + df['Resumen - Aclaracion'].fillna('')
+        df['texto_limpio_ia'] = df['texto_crudo'].apply(utils.limpiar_texto)
         
-        # 2. Limpieza EXACTA usada en el entrenamiento (Llama a utils)
-        df_valid['texto_limpio_ia'] = df_valid['texto_crudo'].apply(utils.limpiar_texto)
+        # 2. Predicción de Sentimiento
+        preds_sent = sentiment_pipeline.predict(df['texto_limpio_ia'])
         
-        # 3. Predicción de Sentimiento
-        preds_sent = sentiment_pipeline.predict(df_valid['texto_limpio_ia'])
-        
-        # Función universal para mapear el tono
         def capitalizar_tono(p):
             if str(p).lstrip('-').isdigit(): 
                 return {2: 'Positivo', 1: 'Neutro', 0: 'Negativo', -1: 'Negativo'}.get(int(p), 'Indefinido')
             return str(p).capitalize()
 
-        df_valid['Tono'] = [capitalizar_tono(p) for p in preds_sent]
+        df['Tono'] = [capitalizar_tono(p) for p in preds_sent]
         
-        # 4. Predicción de Tema
-        df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['texto_limpio_ia'])
+        # 3. Predicción de Tema
+        df['Temas Generales - Tema'] = topic_pipeline.predict(df['texto_limpio_ia'])
+
+    progress_bar.progress(85, text="Paso 6 / 7 — Homogeneizando resultados en noticias similares...")
+    
+    if not df.empty:
+        # Función para agrupar noticias casi idénticas
+        def generar_clave_similitud(row):
+            titulo = utils.normalize_title_for_comparison(row.get('Título', ''))
+            if len(titulo) > 10: return titulo
+            resumen = str(row.get('texto_limpio_ia', ''))[:80]
+            return resumen if resumen else f"id_{row.name}"
+            
+        df['clave_similitud'] = df.apply(generar_clave_similitud, axis=1)
         
-        # 5. Actualizamos el dataframe maestro
-        df.update(df_valid[['Tono', 'Temas Generales - Tema']])
+        # Homogeneización Inteligente: Calculamos la Moda y se la forzamos al grupo
+        df['Tono'] = df.groupby('clave_similitud')['Tono'].transform(lambda x: x.mode()[0] if not x.mode().empty else x)
+        df['Temas Generales - Tema'] = df.groupby('clave_similitud')['Temas Generales - Tema'].transform(lambda x: x.mode()[0] if not x.mode().empty else x)
 
-    progress_bar.progress(85, text="Paso 6 / 7 — Homogeneizando temas...")
-    df_valid_homog = df[~df['is_duplicate']].copy()
-    if not df_valid_homog.empty and 'Temas Generales - Tema' in df_valid_homog.columns:
-        df_valid_homog['titulo_norm_homog'] = df_valid_homog['Título'].apply(
-            utils.normalize_title_for_comparison
-        )
-        homogenized_temas = df_valid_homog.groupby(
-            'titulo_norm_homog'
-        )['Temas Generales - Tema'].transform(
-            lambda x: x.mode()[0] if not x.mode().empty else x
-        )
-        df_valid_homog['Temas Generales - Tema'] = homogenized_temas
-        df.update(df_valid_homog[['Temas Generales - Tema']])
+        # Limpiamos columnas temporales
+        df.drop(columns=['texto_crudo', 'texto_limpio_ia', 'clave_similitud'], inplace=True, errors='ignore')
 
+    # Identificamos duplicadas para los contadores y las métricas (ya no se sobreescribe el tono)
     mask_dup = df['is_duplicate']
-    if mask_dup.any():
-        if 'Temas Generales - Tema' in df.columns:
-            df.loc[mask_dup, 'Temas Generales - Tema'] = '-'
-        df.loc[mask_dup, 'Tono'] = 'Duplicada'
 
     progress_bar.progress(100, text="✓ Proceso completado")
 
@@ -640,7 +635,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza y análisis automático de dossiers · v1.3 | Johnathan Cortés 🐈‍⬛</p>
+    <p>Limpieza, homogeneización IA y análisis automático de dossiers · v1.4</p>
 </div>
 """, unsafe_allow_html=True)
 
