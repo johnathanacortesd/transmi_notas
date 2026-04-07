@@ -674,7 +674,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza, homogeneización IA y análisis automático de dossiers · v1.8 | 🐈‍⬛ Johnathan Cortés 😼</p>
+    <p>Limpieza, homogeneización IA y análisis automático de dossiers · v1.8 | 🕵️ Johnathan Cortés 😼</p>
 </div>
 """, unsafe_allow_html=True)
 
