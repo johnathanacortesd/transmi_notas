@@ -8,8 +8,8 @@ import dossier_utils as utils
 
 # --- Configuración de la página ---
 st.set_page_config(
-    page_title="Dossier Intelligence · Transmilenio",
-    page_icon="🚌",
+    page_title="TransmiApp Notas",
+    page_icon="🚇",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
