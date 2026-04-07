@@ -444,6 +444,7 @@ def run_full_process(dossier_file, config_file, download_placeholder):
     df = utils.detect_duplicates_optimized(df)
 
     progress_bar.progress(65, text="Paso 5 / 7 — Aplicando modelos de IA a noticias únicas...")
+    
     # Aislar SOLO las noticias únicas para procesarlas
     df_valid = df[~df['is_duplicate']].copy()
     
@@ -464,7 +465,7 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         df_valid['Temas Generales - Tema'] = topic_pipeline.predict(df_valid['texto_limpio_ia'])
 
         # 4. HOMOGENEIZAR TEMA Y TONO EN NOTICIAS SIMILARES NO-DUPLICADAS
-        progress_bar.progress(85, text="Paso 6 / 7 — Homogeneizando Tono y Tema en noticias similares...")
+        progress_bar.progress(80, text="Paso 6 / 7 — Homogeneizando Tono y Tema en noticias similares...")
         
         def generar_clave_similitud(row):
             titulo = utils.normalize_title_for_comparison(row.get('Título', ''))
@@ -481,7 +482,15 @@ def run_full_process(dossier_file, config_file, download_placeholder):
         # Actualizar dataframe original con los datos válidos homogeneizados
         df.update(df_valid[['Tono', 'Temas Generales - Tema']])
 
-    # 5. RESTAURAR EL COMPORTAMIENTO ORIGINAL PARA LAS DUPLICADAS
+    # 5. NUEVA REGLA DE NEGOCIO: "TITULARES"
+    progress_bar.progress(90, text="Aplicando regla de negocio: 'Titulares'...")
+    if 'Título' in df.columns:
+        mask_titulares = df['Título'].astype(str).str.contains('titulares', case=False, na=False)
+        df.loc[mask_titulares, 'Tono'] = 'Neutro'
+        df.loc[mask_titulares, 'Temas Generales - Tema'] = 'Entorno e información general'
+
+    # 6. RESTAURAR EL COMPORTAMIENTO ORIGINAL PARA LAS DUPLICADAS
+    # (Hacerlo al final garantiza que si hay un Titular duplicado, diga "Duplicada")
     mask_dup = df['is_duplicate']
     if mask_dup.any():
         if 'Temas Generales - Tema' in df.columns:
@@ -638,7 +647,7 @@ def run_expand_process(dossier_file, config_file, download_placeholder):
 st.markdown("""
 <div class="app-header">
     <div class="badge">Transmilenio · Media Intelligence</div>
-    <p>Limpieza y análisis automático de dossiers · v1.5 | |Johnathan Cortés 😼</p>
+    <p>Limpieza, homogeneización IA y análisis automático de dossiers · v1.6 | Johnathan Cortés 😼</p>
 </div>
 """, unsafe_allow_html=True)
 
