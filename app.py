@@ -678,7 +678,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_process, tab_expand = st.tabs(["🔄 Procesar Dossier", "📋 Expandir por Menciones"])
+tab_process, tab_expand = st.tabs(["🔄 Procesar Dossier", "📋 Entidades"])
 
 
 # ── PESTAÑA 1: PROCESO COMPLETO ──
