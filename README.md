@@ -21,6 +21,8 @@
 ![XlsxWriter](https://img.shields.io/badge/XlsxWriter-Excel-C62828?style=for-the-badge&logo=microsoft-excel&logoColor=white)
 ![Estado](https://img.shields.io/badge/Estado-Activo-4CAF50?style=for-the-badge)
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://transmi-notas.streamlit.app/)
+
 <br/>
 
 > **TransmiApp** automatiza el procesamiento de dossiers de prensa del sistema de transporte masivo de Bogotá. Detecta duplicados, predice tono y tema con modelos de IA entrenados, normaliza medios y expande menciones de entidades — todo desde una interfaz web sin fricciones.
