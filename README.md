@@ -332,7 +332,7 @@ unidecode>=1.3.6
 
 _Analista de datos · Bogotá, Colombia_
 
-[![GitHub](https://img.shields.io/badge/GitHub-tu--usuario-B71C1C?style=flat-square&logo=github)](https://github.com/johnathanacortesd)
+[![GitHub](https://img.shields.io/badge/GitHub-johnathanacortesd-B71C1C?style=flat-square&logo=github)](https://github.com/johnathanacortesd)
 
 <br/>
 
@@ -342,6 +342,6 @@ _Analista de datos · Bogotá, Colombia_
 
 ---
 
-<sub>Construido con ❤️ y mucho café para el sistema de transporte de Bogotá · 2024</sub>
+<sub>Construido con ❤️ y mucho café para el sistema de transporte de Bogotá · 2026</sub>
 
 </div>
